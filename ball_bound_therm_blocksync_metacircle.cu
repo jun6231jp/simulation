@@ -118,7 +118,7 @@ void normal(double p0[], double p1[], double p2[], double normal[])
   cross(v0, v1, normal);
   normVec(normal);
 }
-
+//衝突検知
 __global__ void grav_coldetect(float(*pos)[3],float(*vec)[3],float(*coltime)[NUM_POINTS],int(*colindex)[NUM_POINTS])
 {
   float xn,yn,zn,vx,vy,vz,dis,sq;
@@ -155,7 +155,7 @@ __global__ void grav_coldetect(float(*pos)[3],float(*vec)[3],float(*coltime)[NUM
         }
     }
 }
-
+//衝突後の速度ベクトル計算
 __global__ void grav_colv(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],float(*sti),float(*e),float(*J),float(*coltime)[NUM_POINTS],int(*colindex)[NUM_POINTS])
 {
   float xn,yn,zn,sq,dis;
@@ -250,6 +250,7 @@ __global__ void grav_colv(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],float(
     J[index] = 0;
   }
 }
+//重力影響後の速度ベクトル計算
 __global__ void grav_v(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],int(*colindex)[NUM_POINTS])
 {
   float xn,yn,zn,vx,vy,vz,sq,dis;
@@ -303,6 +304,7 @@ __global__ void grav_v(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],int(*coli
   v_buff[index][1] = vy;
   v_buff[index][2] = vz;
 }
+//速度ベクトル更新
 __global__ void grav_vupdate(float(*vec)[3],float(*v_buff)[3])
 {
   unsigned int thread_idx = threadIdx.x+blockDim.x*blockIdx.x;
@@ -313,6 +315,7 @@ __global__ void grav_vupdate(float(*vec)[3],float(*v_buff)[3])
   vec[index][1]=v_buff[index][1];
   vec[index][2]=v_buff[index][2];
 }
+//衝突検知用バッファクリア
 __global__ void buff_clear(float(*v_buff)[3],float(*coltime)[NUM_POINTS],int(*colindex)[NUM_POINTS])
 {
   unsigned int thread_idx = threadIdx.x+blockDim.x*blockIdx.x;
@@ -327,6 +330,7 @@ __global__ void buff_clear(float(*v_buff)[3],float(*coltime)[NUM_POINTS],int(*co
     colindex[index][i]=NUM_POINTS;
   }
 }
+//重力影響後の位置更新
 __global__ void grav_p(float(*pos)[3], float(*vec)[3])
 {
   float xn,yn,zn,vx,vy,vz;
@@ -375,7 +379,6 @@ void setInitialPosition(void)
       }
     }
     */
-
 
     st_point[i]=visc;
     e_point[i]=ref;
@@ -451,7 +454,7 @@ void defineViewMatrix(double phi, double theta)
   cross(z_axis, x_axis, y_axis);
   gluLookAt(eye[X], eye[Y], eye[Z], center[X], center[Y], center[Z], up[X], up[Y], up[Z]);
 }
-
+//円を描き、視点に合わせて向きを変えることで球を表現
 void metaball (float pos[3], float color[3]) {
   double margin=0;
   double view[3]={0};
