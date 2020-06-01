@@ -238,7 +238,7 @@ __global__ void grav_colv(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],float(
         vl_buff[2]=vcol_buff[2];
         e[index] = 1 - ((1-ref)/temp * J[index]/M/cap);
         if ( e[index] < 0 ){ e[index] = 0; }
-        if ( e[index] > 1 ){ e[index] = 1; }
+        else{ e[index] = 1; }
         sti[index] = visc - ((J[index]/M/cap - temp) / 100);
       }
       v_buff[index][0]=vl_buff[0];
@@ -359,7 +359,7 @@ void setInitialPosition(void)
         h_buff[i][j] = 0;
       }
 
-    /*
+    /*地球と隕石を分離して配置
     if(i < earth_points){
       for (int j = 0 ; j < 3 ; j++){
         h_point[i][j] = (float)(rand()-rand()) / RAND_MAX * INIT_WIDTH/vision/2 ;
