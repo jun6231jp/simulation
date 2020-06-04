@@ -13,13 +13,8 @@
 #include <cuda_runtime.h>
 #include <cuda_gl_interop.h>
 
-//TDB
-//VBO
-//初期座標を球形にする
-//衝突角度や距離をスライドで変更できるようにする
-
 #define PI 3.141592653589793
-//物理パラメータ
+
 #define cap 1000
 #define ref 0.9
 #define temp 3000
@@ -27,16 +22,16 @@
 #define GRAV (6.674*0.00000000000000000001)
 #define density (2.5 * 1000000000000)
 #define sigma (0.96*5.67*0.00000001) //W/m^2 T^4
-#define cool (sigma*4*PI*rad*rad*1000000)
-//粒子形状
+#define cool (sigma*4*PI*rad*rad*1000000*15)
+
 #define rad 300 //km
 #define M (4 / 3 * PI * rad*rad*rad* density)//kg
-//描写設定
+
 #define MOONOFFSET_X (INIT_WIDTH/vision/2)
 #define MOONOFFSET_Y (INIT_WIDTH/vision*2)
 #define MOONOFFSET_Z (INIT_HEIGHT/vision)
 #define dev 360
-#define resol 100
+#define resol 50
 #define hollow 30
 #define X 0
 #define Y 1
@@ -49,7 +44,7 @@
 #define INIT_WIDTH 800
 #define INIT_HEIGHT 800
 #define vision 40
-#define Grid_x 2//block間は__syncthreadでは同期不可
+#define Grid_x 4
 #define Grid_y 2
 #define Grid_z 1
 #define Block_x 2
@@ -100,7 +95,7 @@ __global__ void grav_vupdate(float(*vec)[3],float(*v_buff)[3]);
 __global__ void buff_clear(float(*v_buff)[3],float(*coltime)[NUM_POINTS],int(*colindex)[NUM_POINTS]);
 __global__ void grav_p(float (*pos)[3], float(*vec)[3]);
 
-//基本関数群
+//basic function
 double dot(double vec0[], double vec1[])
 {
   return(vec0[X] * vec1[X] + vec0[Y] * vec1[Y] + vec0[Z] * vec1[Z]);
@@ -131,7 +126,7 @@ void normal(double p0[], double p1[], double p2[], double normal[])
   normVec(normal);
 }
 
-//衝突検知
+//colision detection
 __global__ void grav_coldetect(float(*pos)[3],float(*vec)[3],float(*coltime)[NUM_POINTS],int(*colindex)[NUM_POINTS])
 {
   float xn,yn,zn,vx,vy,vz,dis,sq;
@@ -153,14 +148,12 @@ __global__ void grav_coldetect(float(*pos)[3],float(*vec)[3],float(*coltime)[NUM
       rvec[0]=(pos[i][0]-xn)/dis;
       rvec[1]=(pos[i][1]-yn)/dis;
       rvec[2]=(pos[i][2]-zn)/dis;
-      //衝突域侵入判定
       if (dis > 2 * R * colmargin  && i != index)
 	{
 	  colindex[index][i]=NUM_POINTS;
 	}
       else if (dis <= 2 * R * colmargin && i != index)
 	{
-	  //衝突域侵入からの経過の時間を記録　
 	  colindex[index][i]=i;
 	  coltime[index][i]=(2*R*colmargin-dis)/((vx-vec[i][0])*rvec[0]+(vy-vec[i][1])*rvec[1]+(vz-vec[i][2])*rvec[2]);
 	}
@@ -171,7 +164,7 @@ __global__ void grav_coldetect(float(*pos)[3],float(*vec)[3],float(*coltime)[NUM
     }
 }
 
-//衝突後の速度を計算
+//culculate speed after colision
 __global__ void grav_colv(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],float(*sti),float(*e),float(*J),float(*coltime)[NUM_POINTS],int(*colindex)[NUM_POINTS])
 {
   float xn,yn,zn,sq,dis;
@@ -204,7 +197,6 @@ __global__ void grav_colv(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],float(
     }
   }
   if(colnum>0){
-      //衝突域侵入からの経過時間をインデックス付きソート
       for (int i = 0 ; i < NUM_POINTS; i++){
         for(int j = i+1; j < NUM_POINTS; j++){
           if(coltime[index][i] > coltime[index][j]){
@@ -217,53 +209,42 @@ __global__ void grav_colv(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],float(
           }
         }
       }
-      //衝突域侵入からの経過時間が長いものから処理
       for (int i=NUM_POINTS-1 ; i>=NUM_POINTS-colnum; i--){
 	coldex=colindex[index][i];
 	sq = (float)pow((double)(xn-pos[coldex][0]),2)+pow((double)(yn-pos[coldex][1]),2)+pow((double)(zn-pos[coldex][2]),2);
 	dis = (float)sqrt((double)sq);
-	//衝突の運動量の単位ベクトル
 	rvec[0]=(pos[coldex][0]-xn)/dis;
 	rvec[1]=(pos[coldex][1]-yn)/dis;
 	rvec[2]=(pos[coldex][2]-zn)/dis;
-	//自分の速度ベクトルの法線成分
 	dotV=rvec[0]*vl_buff[0]+rvec[1]*vl_buff[1]+rvec[2]*vl_buff[2];
         Vl[0]=dotV*rvec[0];
         Vl[1]=dotV*rvec[1];
         Vl[2]=dotV*rvec[2];
-	//相手の速度ベクトルの法線成分
 	dotV=rvec[0]*vec[coldex][0]+rvec[1]*vec[coldex][1]+rvec[2]*vec[coldex][2];
 	Vr[0]=dotV*rvec[0];
 	Vr[1]=dotV*rvec[1];
 	Vr[2]=dotV*rvec[2];
-	//自分の速度ベクトルの水平成分
 	Vh[0]=vl_buff[0]-Vl[0];
 	Vh[1]=vl_buff[1]-Vl[1];
 	Vh[2]=vl_buff[2]-Vl[2];
-	//反発係数は小さいほうを優先
 	repul=e[index];
 	if (e[coldex] < e[index]) {
 	  repul=e[coldex];
 	}
-	//速度更新 
         vcol_buff[0]=Vh[0]+((1+repul)*Vr[0]+(1-repul)*Vl[0])/2;
         vcol_buff[1]=Vh[1]+((1+repul)*Vr[1]+(1-repul)*Vl[1])/2;
         vcol_buff[2]=Vh[2]+((1+repul)*Vr[2]+(1-repul)*Vl[2])/2;
-	//相手の速度計算
         vr_buff[0]=vec[coldex][0]-Vr[0]+((1+repul)*Vl[0]+(1-repul)*Vr[0])/2;
         vr_buff[1]=vec[coldex][1]-Vr[1]+((1+repul)*Vl[1]+(1-repul)*Vr[1])/2;
         vr_buff[2]=vec[coldex][2]-Vr[2]+((1+repul)*Vl[2]+(1-repul)*Vr[2])/2;
-	//衝突エネルギーを粘性の比で分配し熱エネルギー変換
 	double Energy=0.5*M*(pow(vec[coldex][0],2)+pow(vec[coldex][1],2)+pow(vec[coldex][2],2)+pow(vl_buff[0],2)+pow(vl_buff[1],2)+pow(vl_buff[2],2) - (pow(vcol_buff[0],2)+pow(vcol_buff[1],2)+pow(vcol_buff[2],2)+pow(vr_buff[0],2)+pow(vr_buff[1],2)+pow(vr_buff[2],2))) / pow(scale,2) * 1000000;
 	J[index] += Energy / (pow(10.0,(double)(sti[index]-sti[coldex]))+1);
-	//温度上限10000000度とする
 	if (J[index] > M * cap * 10000000){
 	  J[index] = M * cap * 10000000;
 	}
         vl_buff[0]=vcol_buff[0];
         vl_buff[1]=vcol_buff[1];
         vl_buff[2]=vcol_buff[2];
-	//粘性と反発係数の更新 反発係数は温度上昇に対し線形に降下、粘性は100度上昇で1桁降下
 	e[index] = 1 - ((1-ref)/temp * J[index]/M/cap);
 	if ( e[index] < 0 ){ e[index] = 0; }
 	if ( e[index] > 1 ){ e[index] = 1; }
@@ -273,14 +254,13 @@ __global__ void grav_colv(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],float(
       v_buff[index][1]=vl_buff[1];
       v_buff[index][2]=vl_buff[2];
   }
-  //放射冷却
   J[index]-=cool*(J[index]/M/cap)*(J[index]/M/cap)*(J[index]/M/cap)*(J[index]/M/cap)*ANIM;
-  //絶対零度以下にはならない
   if (J[index] < 0) {
     J[index] = 0;
   }
 }
-//重力影響後の速度を計算
+
+//calculate speed after gravity affect
 __global__ void grav_v(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],int(*colindex)[NUM_POINTS])
 {
   float xn,yn,zn,vx,vy,vz,sq,dis;
@@ -299,7 +279,6 @@ __global__ void grav_v(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],int(*coli
     }
   }
   if(colnum==0){
-    //衝突なしなら自分以外のすべてから重力影響を受ける
     vx = vec[index][0];
     vy = vec[index][1];
     vz = vec[index][2]; 
@@ -315,11 +294,9 @@ __global__ void grav_v(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],int(*coli
     }
   }
   else {
-    //衝突ありなら自分と衝突対象以外から重力影響を受ける 
     vx = v_buff[index][0];
     vy = v_buff[index][1];
     vz = v_buff[index][2];
-    
     for (int i = 0 ; i < NUM_POINTS; i++){
       sq = (float)pow((double)(xn-pos[i][0]),2) + pow((double)(yn-pos[i][1]),2) + pow((double)(zn-pos[i][2]),2);
       gravity=GRAV*M/sq*scale*scale;
@@ -330,7 +307,6 @@ __global__ void grav_v(float(*pos)[3],float(*vec)[3],float(*v_buff)[3],int(*coli
 	vz += ((pos[i][2]-zn)/dis)*gravity*ANIM*scale;
       }
     }
-    
   }
   v_buff[index][0] = vx;
   v_buff[index][1] = vy;
@@ -346,7 +322,7 @@ __global__ void grav_vupdate(float(*vec)[3],float(*v_buff)[3])
   vec[index][1]=v_buff[index][1];
   vec[index][2]=v_buff[index][2];
 }
-//バッファ類クリア
+
 __global__ void buff_clear(float(*v_buff)[3],float(*coltime)[NUM_POINTS],int(*colindex)[NUM_POINTS])
 {
   unsigned int thread_idx = threadIdx.x+blockDim.x*blockIdx.x;
@@ -361,7 +337,8 @@ __global__ void buff_clear(float(*v_buff)[3],float(*coltime)[NUM_POINTS],int(*co
     colindex[index][i]=NUM_POINTS;
   }
 }
-//重力影響後の座標を決定
+
+//calculate position after gravity affect
 __global__ void grav_p(float(*pos)[3], float(*vec)[3])
 {
   float xn,yn,zn,vx,vy,vz;
@@ -380,10 +357,8 @@ __global__ void grav_p(float(*pos)[3], float(*vec)[3])
   pos[index][2] = zn + vz * ANIM;
 }
 
-// 粒子を初期位置に配置．
 void setInitialPosition(void)
 {
-  int earth_points = NUM_POINTS - (NUM_POINTS/16);
   for (int i = 0; i < NUM_POINTS; i++) {
       for (int j = 0 ; j < 3 ; j++){
         h_point[i][j] = (float)(rand()-rand()) / RAND_MAX * INIT_WIDTH/vision*2 ;
@@ -392,6 +367,8 @@ void setInitialPosition(void)
       }    
 
     /*
+      int earth_points = NUM_POINTS - (NUM_POINTS/16);
+   
     if(i < earth_points){
       for (int j = 0 ; j < 3 ; j++){
         h_point[i][j] = (float)(rand()-rand()) / RAND_MAX * INIT_WIDTH/vision/2 ;
@@ -437,7 +414,8 @@ void setInitialPosition(void)
   checkCudaErrors(cudaMemcpy(dcolsynctime, colsynctime, NUM_POINTS*NUM_POINTS * sizeof(float) , cudaMemcpyHostToDevice));
   checkCudaErrors(cudaMemcpy(dcolsyncindex, colsyncindex, NUM_POINTS*NUM_POINTS * sizeof(int) , cudaMemcpyHostToDevice));
 }
-//CUDA実行関数
+
+//CUDA 
 void launchGPUKernel(unsigned int num_particles,float(*pos)[3],float(*vec)[3],float(*v_buff)[3],float(*sti),float(*e),float(*J),float(*coltime)[NUM_POINTS],int(*colindex)[NUM_POINTS])
 {
     dim3 grid(Grid_x,Grid_y,Grid_z);
@@ -449,7 +427,7 @@ void launchGPUKernel(unsigned int num_particles,float(*pos)[3],float(*vec)[3],fl
     buff_clear<<<grid , block>>>(v_buff,coltime,colindex);
     grav_p<<<grid , block>>>(pos,vec);
 }
-//アニメーション動作
+//animation
 void runGPUKernel(void)
 {
   launchGPUKernel(NUM_POINTS, d_point, dv_point,v_buff,dst_point, de_point,dJ_point,dcolsynctime,dcolsyncindex);
@@ -463,14 +441,13 @@ void runGPUKernel(void)
   checkCudaErrors(cudaMemcpy(colsyncindex,dcolsyncindex, NUM_POINTS*NUM_POINTS * sizeof(int) , cudaMemcpyDeviceToHost));
   anim_time += anim_dt;
 }
-//ビュー定義
+
 void defineViewMatrix(double phi, double theta)
 {
   unsigned int i;
   double c, s, xy_dist;
   double x_axis[3], y_axis[3], z_axis[3];
 
-  // 視点の設定．
   eye[Z] = sin(theta * PI / 180.0);
   xy_dist = cos(theta * PI / 180.0);
   c = cos(phi * PI / 180.0);
@@ -481,7 +458,6 @@ void defineViewMatrix(double phi, double theta)
   up[Y] = - s * eye[Z];
   up[Z] = s * eye[Y] + c * eye[X];
   normVec(up);
-  // 視点を原点とする座標系の定義．
   for (i = 0; i < 3; i++)
     {
       z_axis[i] = eye[i] - center[i];
@@ -503,12 +479,11 @@ void metaball (float pos[3], float color[3]) {
       view[0] = 0;
       view[1] = R * cos(i * PI * 2 / dev);                                                   
       view[2] = R * sin(i * PI * 2 / dev); 
-      //極座標変換
       point[i][X] = view[0] * cos(TH * PI / 180) * cos(PH * PI / 180) + view[1] * sin(PH * PI / 180) - view[2] * sin(TH * PI / 180) * cos(PH * PI / 180);
       point[i][Y] = - view[0] * cos(TH * PI / 180) * sin(PH * PI / 180) + view[1] * cos(PH * PI / 180) + view[2] * sin(TH * PI / 180) * sin(PH * PI / 180);
       point[i][Z] = view[0] * sin(TH * PI / 180) + view[2] * cos(TH * PI / 180);            
     }
-  //中心の球体を円で描き視点に合わせて向きを変えることで球体に見せる
+
   glBegin(GL_TRIANGLE_FAN);
   glColor4f(1,1,1,0.3);
   glVertex3d(pos[X],pos[Y],pos[Z]);
@@ -517,7 +492,7 @@ void metaball (float pos[3], float color[3]) {
       glVertex3d(point[i][X] + pos[X], point[i][Y] + pos[Y], point[i][Z] + pos[Z]);
     }
   glEnd(); 
-  //周囲のボヤ
+
   int mh[dev_points];
   for (int i = 0 ; i < dev_points ; i ++)
     {
@@ -530,10 +505,6 @@ void metaball (float pos[3], float color[3]) {
     margin=(colmargin-1)/10*k+1;
     for (int i = 0 ; i < dev_points ; i ++)
       {
-        /*if ((rand() % dev) < (dev / 2 / (k + 1)))                                                                                    {
-            glVertex3d(margin*point[i][X] + pos[X], margin*point[i][Y] + pos[Y], margin*point[i][Z] + pos[Z]);
-          }
-	*/
         if((mh[i]==1) && (rand() % dev) < (dev * (hollow-k/2)/hollow))
           glVertex3d(margin*point[i][X] + pos[X], margin*point[i][Y] + pos[Y], margin*point[i][Z] + pos[Z]);
         else
@@ -548,9 +519,8 @@ void display(void)
     light_pos[1] = (float)eye[Y];
     light_pos[2] = (float)eye[Z];
     light_pos[3] = 0.0f;
-    //CUDA開始
+
     runGPUKernel();
-    // 光源の設定
     glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -558,11 +528,9 @@ void display(void)
     glViewport(0, 0, window_width, window_height);
     defineViewMatrix(phi, theta);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    //メタボール
     float color[3]={0};
     for (int k = 0 ; k < NUM_POINTS ; k++)
       {
-	//温度によって色を変化
 	if(J_point[k]/M/cap-temp < resol){ 
           color[0]=1.0;                                                                                                     
           color[1]=1.0;                                                                                                      
@@ -651,7 +619,6 @@ int main(int argc, char** argv)
       point[i] = (double *)malloc(sizeof(double) * 3);
     } 
   glutInit(&argc, argv);
-  //glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH);
   glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE); 
   glutInitWindowSize(window_width, window_height); 
   glutCreateWindow("3D CUDA Simulation");
@@ -664,7 +631,6 @@ int main(int argc, char** argv)
   if (!initGL())
     return 1;
   glutMainLoop();
-  
   cudaFree(dst_point);
   cudaFree(de_point);
   cudaFree(dJ_point);
